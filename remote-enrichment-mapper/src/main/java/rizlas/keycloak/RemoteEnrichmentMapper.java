@@ -72,6 +72,8 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     private static final String URL_PROPERTY_NAME = "url";
     private static final String URL_PROPERTY_DEFAULT = "https://postman-echo.com/get";
     private static final String URL_AUTH_TOKEN_PROPERTY_NAME = "url_auth_token";
+    private static final String URL_AUTH_BASIC_USERNAME_PROPERTY_NAME = "url_auth_username";
+    private static final String URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME = "url_auth_password";
     private static final String URL_PARAMS_PROPERTY_NAME = "url_params";
     private static final String URL_PARAMS_SEND_USERNAME = "url_send_username";
     private static final String URL_PARAMS_SEND_CLIENTID = "url_send_clientid";
@@ -146,8 +148,26 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         field.setLabel("Authentication Token");
         field.setHelpText("""
                 Token used to authenticate requests to the endpoint. Leave empty if it
-                does not require authentication.
+                does not require authentication. If set, this take precedence over basic
+                authentication.
                 """);
+        field.setType(ProviderConfigProperty.PASSWORD);
+        field.setSecret(true);
+        configProperties.add(field);
+
+        // Basic authentication username
+        field = new ProviderConfigProperty();
+        field.setName(URL_AUTH_BASIC_USERNAME_PROPERTY_NAME);
+        field.setLabel("Basic authentication username");
+        field.setHelpText("The username for Basic Authentication.");
+        field.setType(ProviderConfigProperty.STRING_TYPE);
+        configProperties.add(field);
+
+        // Basic authentication password
+        field = new ProviderConfigProperty();
+        field.setName(URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME);
+        field.setLabel("Basic authentication password");
+        field.setHelpText("The password for Basic Authentication.");
         field.setType(ProviderConfigProperty.PASSWORD);
         field.setSecret(true);
         configProperties.add(field);
@@ -249,6 +269,8 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
 
         String url = configs.getOrDefault(URL_PROPERTY_NAME, URL_PROPERTY_DEFAULT);
         String authToken = configs.get(URL_AUTH_TOKEN_PROPERTY_NAME);
+        String authBasicUsername = configs.get(URL_AUTH_BASIC_USERNAME_PROPERTY_NAME);
+        String authBasicPassword = configs.get(URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME);
         String tokenClaimName = configs.get(OIDCAttributeMapperHelper.TOKEN_CLAIM_NAME);
 
         boolean sendUsername = Boolean.parseBoolean(configs.get(URL_PARAMS_SEND_USERNAME));
@@ -309,6 +331,9 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
 
         if (authToken != null && !authToken.isBlank()) {
             enrichmentEndpoint.auth(authToken); // Authorization: Bearer <token>
+        } else if (authBasicUsername != null && !authBasicUsername.isBlank() &&
+                authBasicPassword != null && !authBasicPassword.isBlank()) {
+            enrichmentEndpoint.authBasic(authBasicUsername, authBasicPassword);
         }
 
         if (!debugLogMsgParams.isEmpty()) {
