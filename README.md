@@ -15,3 +15,10 @@ mvn archetype:generate \
 ```bash
 mvn clean install -DskipTests
 ```
+
+
+## Resources
+
+
+- https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/protocol/oidc/mappers/AbstractOIDCProtocolMapper.html
+- https://www.baeldung.com/keycloak-custom-protocol-mapper
