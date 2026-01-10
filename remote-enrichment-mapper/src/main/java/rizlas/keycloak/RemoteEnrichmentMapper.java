@@ -264,18 +264,18 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         String debugLogMsg = url;
         List<String> debugLogMsgParams = new ArrayList<>();
 
-        SimpleHttp authzEndpoint = SimpleHttp.doGet(url, keycloakSession)
+        SimpleHttp enrichmentEndpoint = SimpleHttp.doGet(url, keycloakSession)
                 .acceptJson()
                 .socketTimeOutMillis(2000) // 2 secondi
                 .connectTimeoutMillis(1000); // 1 secondo
 
         if (sendUsername) {
-            authzEndpoint.param("username", username);
+            enrichmentEndpoint.param("username", username);
             debugLogMsgParams.add(String.format("username=%s", username));
         }
 
         if (sendClientId) {
-            authzEndpoint.param("client_id", clientId);
+            enrichmentEndpoint.param("client_id", clientId);
             debugLogMsgParams.add(String.format("client_id=%s", clientId));
         }
 
@@ -295,20 +295,20 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                     String claim = getClaimValue(token, claimName);
 
                     if (claim != null && !claim.isBlank()) {
-                        authzEndpoint.param(key, claim);
+                        enrichmentEndpoint.param(key, claim);
                         debugLogMsgParams.add(String.format("%s=%s", key, claim));
                     } else {
                         log.warn("Claim {} requested but was null or empty in token", claimName);
                     }
                 } else {
-                    authzEndpoint.param(key, value);
+                    enrichmentEndpoint.param(key, value);
                     debugLogMsgParams.add(String.format("%s=%s", key, value));
                 }
             }
         }
 
         if (authToken != null && !authToken.isBlank()) {
-            authzEndpoint.auth(authToken); // Authorization: Bearer <token>
+            enrichmentEndpoint.auth(authToken); // Authorization: Bearer <token>
         }
 
         if (!debugLogMsgParams.isEmpty()) {
@@ -320,7 +320,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         Map<String, Object> authzResponse;
 
         try {
-            int status = authzEndpoint.asStatus();
+            int status = enrichmentEndpoint.asStatus();
 
             if (status < 200 || status >= 300) {
                 String msg = String.format("Authorization endpoint error, status code: %d", status);
@@ -328,7 +328,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 throw new ProtocolMapperConfigException(msg, URL_PROPERTY_NAME);
             }
 
-            authzResponse = authzEndpoint.asJson(new TypeReference<>() {
+            authzResponse = enrichmentEndpoint.asJson(new TypeReference<>() {
             });
         } catch (IOException e) {
             String msg = String.format("Error calling authorization endpoint %s for user %s", url, username);
