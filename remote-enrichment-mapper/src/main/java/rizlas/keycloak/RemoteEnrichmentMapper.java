@@ -14,6 +14,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.ProtocolMapperContainerModel;
 import org.keycloak.models.ProtocolMapperModel;
 import org.keycloak.models.RealmModel;
+import org.keycloak.models.UserModel;
 import org.keycloak.models.UserSessionModel;
 import org.keycloak.protocol.ProtocolMapper;
 import org.keycloak.protocol.ProtocolMapperConfigException;
@@ -128,16 +129,14 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 Use standard URL query syntax, separating parameters with '&'
                 (e.g. param_one=value_one&param_two=value_two).
 
-                You can also reference existing token claims by using the prefix
-                'claim_'. The claim value will be resolved at runtime and sent as a
-                query parameter. If the claim does not exist in the token, the parameter
-                will be omitted from the request.
+                Dynamic Values:
+                - 'user_': Resolves from the User Profile (supported key user_email,
+                user_username, user_firstName, user_lastName, user_emailVerified).
+                - 'claim_': Resolves from claims already present in the token (e.g. preferred_username).
 
-                Example: param_one=value_one&username=claim_preferred_username
+                Example: param_one=value_one&user_id=user_email&name=claim_name
 
-                Allowed claims are: name, given_name, family_name, middle_name,
-                nickname, preferred_username, email, birthdate, zoneinfo, locale,
-                phone_number, sub.
+                Note: some claims may not be available.
                 """);
         field.setType(ProviderConfigProperty.STRING_TYPE);
         configProperties.add(field);
@@ -266,6 +265,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         // This will iterate for every token type requested
 
         Map<String, String> configs = mappingModel.getConfig();
+        UserModel user = userSession.getUser();
 
         String url = configs.getOrDefault(URL_PROPERTY_NAME, URL_PROPERTY_DEFAULT);
         String authToken = configs.get(URL_AUTH_TOKEN_PROPERTY_NAME);
@@ -280,7 +280,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
 
         boolean overwriteExisting = Boolean.parseBoolean(configs.get(OVERWRITE_EXISTING_CLAIMS));
 
-        String username = userSession.getUser().getUsername();
+        String username = user.getUsername();
         String clientId = clientSessionCtx.getClientSession().getClient().getClientId();
 
         String debugLogMsg = url;
@@ -303,29 +303,24 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
 
         if (rawParams != null && !rawParams.isBlank()) {
             for (String pair : rawParams.split("&")) {
+
                 String[] kv = pair.split("=", 2);
                 if (kv.length != 2) {
+                    log.warn("Skipping invalid query parameter '{}'", pair);
                     continue;
                 }
 
                 String key = kv[0];
                 String value = kv[1];
+                String resolvedValue = resolveParamValue(value, user, token);
 
-                if (value.startsWith("claim_")) {
-                    String claimName = value.substring("claim_".length());
-                    log.debug("Request claim '{}' from param", claimName);
-                    String claim = getClaimValue(token, claimName);
-
-                    if (claim != null && !claim.isBlank()) {
-                        enrichmentEndpoint.param(key, claim);
-                        debugLogMsgParams.add(String.format("%s=%s", key, claim));
-                    } else {
-                        log.warn("Claim {} requested but was null or empty in token", claimName);
-                    }
-                } else {
-                    enrichmentEndpoint.param(key, value);
-                    debugLogMsgParams.add(String.format("%s=%s", key, value));
+                if (resolvedValue == null || resolvedValue.isBlank()) {
+                    log.warn("Resolved value for parameter '{}' was null or empty", key);
+                    continue;
                 }
+
+                enrichmentEndpoint.param(key, resolvedValue);
+                debugLogMsgParams.add(String.format("%s=%s", key, resolvedValue));
             }
         }
 
@@ -389,26 +384,33 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     }
 
     private String getClaimValue(IDToken token, String claimName) {
-        // Check and get from custom claim
         Object customClaim = token.getOtherClaims().get(claimName);
-        if (customClaim != null)
-            return String.valueOf(customClaim);
+        return (customClaim != null) ? String.valueOf(customClaim) : null;
+    }
 
-        // Check and get from standard claims of IDToken and JsonWebToken
-        return switch (claimName) {
-            case IDToken.NAME -> token.getName();
-            case IDToken.GIVEN_NAME -> token.getGivenName();
-            case IDToken.FAMILY_NAME -> token.getFamilyName();
-            case IDToken.MIDDLE_NAME -> token.getMiddleName();
-            case IDToken.NICKNAME -> token.getNickName();
-            case IDToken.PREFERRED_USERNAME -> token.getPreferredUsername();
-            case IDToken.EMAIL -> token.getEmail();
-            case IDToken.BIRTHDATE -> token.getBirthdate();
-            case IDToken.ZONEINFO -> token.getZoneinfo();
-            case IDToken.LOCALE -> token.getLocale();
-            case IDToken.PHONE_NUMBER -> token.getPhoneNumber();
-            case IDToken.SUBJECT -> token.getSubject();
+    private String getUserAttribute(UserModel user, String attributeName) {
+        return switch (attributeName) {
+            case "email" -> user.getEmail();
+            case "username" -> user.getUsername();
+            case "firstName" -> user.getFirstName();
+            case "lastName" -> user.getLastName();
+            case "emailVerified" -> String.valueOf(user.isEmailVerified());
             default -> null;
         };
     }
+
+    private String resolveParamValue(String value, UserModel user, IDToken token) {
+        if (value.startsWith("user_")) {
+            String attrName = value.substring("user_".length());
+            return getUserAttribute(user, attrName);
+        }
+
+        if (value.startsWith("claim_")) {
+            String claimName = value.substring("claim_".length());
+            return getClaimValue(token, claimName);
+        }
+
+        return value;
+    }
+
 }
