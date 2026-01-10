@@ -33,13 +33,49 @@ import com.google.auto.service.AutoService;
 public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         implements OIDCAccessTokenMapper, OIDCIDTokenMapper, UserInfoTokenMapper {
 
+    private static final List<String> PROTECTED_CLAIMS = List.of(
+            IDToken.NONCE,
+            IDToken.AUTH_TIME,
+            IDToken.SESSION_STATE,
+            IDToken.AT_HASH,
+            IDToken.C_HASH,
+            IDToken.S_HASH,
+            IDToken.NAME,
+            IDToken.GIVEN_NAME,
+            IDToken.FAMILY_NAME,
+            IDToken.MIDDLE_NAME,
+            IDToken.NICKNAME,
+            IDToken.PREFERRED_USERNAME,
+            IDToken.PROFILE,
+            IDToken.PICTURE,
+            IDToken.WEBSITE,
+            IDToken.EMAIL,
+            IDToken.EMAIL_VERIFIED,
+            IDToken.GENDER,
+            IDToken.BIRTHDATE,
+            IDToken.ZONEINFO,
+            IDToken.LOCALE,
+            IDToken.PHONE_NUMBER,
+            IDToken.PHONE_NUMBER_VERIFIED,
+            IDToken.ADDRESS,
+            IDToken.UPDATED_AT,
+            IDToken.CLAIMS_LOCALES,
+            IDToken.ACR,
+            IDToken.SESSION_ID,
+            IDToken.AZP,
+            IDToken.AUD,
+            IDToken.SUBJECT);
+
     public static final String PROVIDER_ID = "remote-enrichment-token-mapper";
     private static final List<ProviderConfigProperty> configProperties = new ArrayList<>();
 
     private static final String URL_PROPERTY_NAME = "url";
     private static final String URL_PROPERTY_DEFAULT = "https://postman-echo.com/get";
     private static final String URL_AUTH_TOKEN_PROPERTY_NAME = "url_auth_token";
-    private static final String URL_AUTH_TOKEN_PROPERTY_DEFAULT = "";
+    private static final String URL_PARAMS_PROPERTY_NAME = "url_params";
+    private static final String URL_PARAMS_SEND_USERNAME = "url_send_username";
+    private static final String URL_PARAMS_SEND_CLIENTID = "url_send_clientid";
+    private static final String OVERWRITE_EXISTING_CLAIMS = "overwrite_existing_claims";
 
     static {
         ProviderConfigProperty field;
@@ -57,6 +93,53 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         field.setRequired(true);
         configProperties.add(field);
 
+        // Username
+        field = new ProviderConfigProperty();
+        field.setName(URL_PARAMS_SEND_USERNAME);
+        field.setLabel("Include username");
+        field.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        field.setHelpText("""
+                If enabled, the authenticated user's username will be sent
+                as a query parameter named 'username'.
+                """);
+        field.setDefaultValue("true");
+        configProperties.add(field);
+
+        // Client ID
+        field = new ProviderConfigProperty();
+        field.setName(URL_PARAMS_SEND_CLIENTID);
+        field.setLabel("Include client ID");
+        field.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        field.setHelpText("""
+                If enabled, the client identifier will be sent
+                as a query parameter named 'client_id'.
+                """);
+        field.setDefaultValue("true");
+        configProperties.add(field);
+
+        // URL Params
+        field = new ProviderConfigProperty();
+        field.setName(URL_PARAMS_PROPERTY_NAME);
+        field.setLabel("GET Params");
+        field.setHelpText("""
+                Additional query parameters to include in the GET request.
+                Use standard URL query syntax, separating parameters with '&'
+                (e.g. param_one=value_one&param_two=value_two).
+
+                You can also reference existing token claims by using the prefix
+                'claim_'. The claim value will be resolved at runtime and sent as a
+                query parameter. If the claim does not exist in the token, the parameter
+                will be omitted from the request.
+
+                Example: param_one=value_one&username=claim_preferred_username
+
+                Allowed claims are: name, given_name, family_name, middle_name,
+                nickname, preferred_username, email, birthdate, zoneinfo, locale,
+                phone_number, sub.
+                """);
+        field.setType(ProviderConfigProperty.STRING_TYPE);
+        configProperties.add(field);
+
         // Authentication Token
         field = new ProviderConfigProperty();
         field.setName(URL_AUTH_TOKEN_PROPERTY_NAME);
@@ -66,7 +149,6 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 does not require authentication.
                 """);
         field.setType(ProviderConfigProperty.PASSWORD);
-        field.setDefaultValue(URL_AUTH_TOKEN_PROPERTY_DEFAULT);
         field.setSecret(true);
         configProperties.add(field);
 
@@ -77,11 +159,25 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         field.setHelpText("""
                 When Token Claim Name is set, stores the entire authorization
                 response in one claim.
-                When empty, the mapper emits individual claims such as
-                quota, groups, etc.
+                When empty, the mapper emits individual claims.
                 """);
         field.setType(ProviderConfigProperty.STRING_TYPE);
-        field.setDefaultValue(null);
+        field.setDefaultValue("""
+                This is a dummy field. Please click the question mark to know more.
+                """);
+        configProperties.add(field);
+
+        // Overwrite Existing Claims
+        field = new ProviderConfigProperty();
+        field.setName(OVERWRITE_EXISTING_CLAIMS);
+        field.setLabel("Overwrite existing claims");
+        field.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        field.setHelpText("""
+                If enabled, the mapper will overwrite claims that already exist in the
+                token (except for protected native Keycloak claims).
+                If disabled, existing claims will be preserved.
+                """);
+        field.setDefaultValue("false");
         configProperties.add(field);
 
         OIDCAttributeMapperHelper.addTokenClaimNameConfig(configProperties);
@@ -148,25 +244,78 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     protected void setClaim(IDToken token, ProtocolMapperModel mappingModel, UserSessionModel userSession,
             KeycloakSession keycloakSession, ClientSessionContext clientSessionCtx) {
         // This will iterate for every token type requested
+
         Map<String, String> configs = mappingModel.getConfig();
+
         String url = configs.getOrDefault(URL_PROPERTY_NAME, URL_PROPERTY_DEFAULT);
         String authToken = configs.get(URL_AUTH_TOKEN_PROPERTY_NAME);
-        String username = userSession.getUser().getUsername();
-        String clientId = clientSessionCtx.getClientSession().getClient().getClientId();
         String tokenClaimName = configs.get(OIDCAttributeMapperHelper.TOKEN_CLAIM_NAME);
 
-        log.debug("Requesting URL: {}?username={}&client_id={}", url, username, clientId);
+        boolean sendUsername = Boolean.parseBoolean(configs.get(URL_PARAMS_SEND_USERNAME));
+        boolean sendClientId = Boolean.parseBoolean(configs.get(URL_PARAMS_SEND_CLIENTID));
+
+        String rawParams = configs.get(URL_PARAMS_PROPERTY_NAME);
+
+        boolean overwriteExisting = Boolean.parseBoolean(configs.get(OVERWRITE_EXISTING_CLAIMS));
+
+        String username = userSession.getUser().getUsername();
+        String clientId = clientSessionCtx.getClientSession().getClient().getClientId();
+
+        String debugLogMsg = url;
+        List<String> debugLogMsgParams = new ArrayList<>();
 
         SimpleHttp authzEndpoint = SimpleHttp.doGet(url, keycloakSession)
-                .param("username", username)
-                .param("client_id", clientId)
                 .acceptJson()
-                .socketTimeOutMillis(15000) // 15 seconds
-                .connectTimeoutMillis(10000); // 10 seconds
+                .socketTimeOutMillis(2000) // 2 secondi
+                .connectTimeoutMillis(1000); // 1 secondo
+
+        if (sendUsername) {
+            authzEndpoint.param("username", username);
+            debugLogMsgParams.add(String.format("username=%s", username));
+        }
+
+        if (sendClientId) {
+            authzEndpoint.param("client_id", clientId);
+            debugLogMsgParams.add(String.format("client_id=%s", clientId));
+        }
+
+        if (rawParams != null && !rawParams.isBlank()) {
+            for (String pair : rawParams.split("&")) {
+                String[] kv = pair.split("=", 2);
+                if (kv.length != 2) {
+                    continue;
+                }
+
+                String key = kv[0];
+                String value = kv[1];
+
+                if (value.startsWith("claim_")) {
+                    String claimName = value.substring("claim_".length());
+                    log.debug("Request claim '{}' from param", claimName);
+                    String claim = getClaimValue(token, claimName);
+
+                    if (claim != null && !claim.isBlank()) {
+                        authzEndpoint.param(key, claim);
+                        debugLogMsgParams.add(String.format("%s=%s", key, claim));
+                    } else {
+                        log.warn("Claim {} requested but was null or empty in token", claimName);
+                    }
+                } else {
+                    authzEndpoint.param(key, value);
+                    debugLogMsgParams.add(String.format("%s=%s", key, value));
+                }
+            }
+        }
 
         if (authToken != null && !authToken.isBlank()) {
             authzEndpoint.auth(authToken); // Authorization: Bearer <token>
         }
+
+        if (!debugLogMsgParams.isEmpty()) {
+            debugLogMsg += "?" + String.join("&", debugLogMsgParams);
+        }
+
+        log.debug("Calling enrichment endpoint: {}", debugLogMsg);
 
         Map<String, Object> authzResponse;
 
@@ -194,9 +343,47 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
             // Token Claim Name is NOT configured → add each key from the response as an
             // individual claim
             Map<String, Object> claims = token.getOtherClaims();
+
             authzResponse.forEach((key, value) -> {
+                // Check if the claim is in the protected native fields blacklist
+                if (PROTECTED_CLAIMS.contains(key)) {
+                    log.warn("Blocked attempt to overwrite protected claim: '{}'", key);
+                    return;
+                }
+
+                // Check if the claim already exists (e.g., added by another mapper)
+                // This ensures the remote mapper does not overwrite internal data
+                if (claims.containsKey(key) && !overwriteExisting) {
+                    log.debug("Claim '{}' already exists in token, skipping remote value", key);
+                    return;
+                }
+
                 claims.put(key, value);
             });
         }
+    }
+
+    private String getClaimValue(IDToken token, String claimName) {
+        // Check and get from custom claim
+        Object customClaim = token.getOtherClaims().get(claimName);
+        if (customClaim != null)
+            return String.valueOf(customClaim);
+
+        // Check and get from standard claims of IDToken and JsonWebToken
+        return switch (claimName) {
+            case IDToken.NAME -> token.getName();
+            case IDToken.GIVEN_NAME -> token.getGivenName();
+            case IDToken.FAMILY_NAME -> token.getFamilyName();
+            case IDToken.MIDDLE_NAME -> token.getMiddleName();
+            case IDToken.NICKNAME -> token.getNickName();
+            case IDToken.PREFERRED_USERNAME -> token.getPreferredUsername();
+            case IDToken.EMAIL -> token.getEmail();
+            case IDToken.BIRTHDATE -> token.getBirthdate();
+            case IDToken.ZONEINFO -> token.getZoneinfo();
+            case IDToken.LOCALE -> token.getLocale();
+            case IDToken.PHONE_NUMBER -> token.getPhoneNumber();
+            case IDToken.SUBJECT -> token.getSubject();
+            default -> null;
+        };
     }
 }
