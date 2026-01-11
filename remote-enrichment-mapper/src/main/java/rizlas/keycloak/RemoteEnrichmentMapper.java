@@ -3,10 +3,12 @@ package rizlas.keycloak;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import lombok.SneakyThrows;
-import lombok.extern.slf4j.Slf4j;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.keycloak.broker.provider.util.SimpleHttp;
 import org.keycloak.models.ClientSessionContext;
@@ -29,10 +31,10 @@ import org.keycloak.representations.IDToken;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.auto.service.AutoService;
 
-@Slf4j
 @AutoService(ProtocolMapper.class)
 public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         implements OIDCAccessTokenMapper, OIDCIDTokenMapper, UserInfoTokenMapper {
+    private static final Logger log = LoggerFactory.getLogger(RemoteEnrichmentMapper.class);
 
     private static final List<String> PROTECTED_CLAIMS = List.of(
             IDToken.NONCE,
@@ -237,10 +239,8 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
             ProtocolMapperModel mapperModel) throws ProtocolMapperConfigException {
         String url = mapperModel.getConfig().get(URL_PROPERTY_NAME);
         if (url == null || url.isBlank()) {
-            String message = "URL is required";
-            log.error(message);
             throw new ProtocolMapperConfigException(
-                    message,
+                    "URL is required",
                     URL_PROPERTY_NAME);
         }
 
@@ -250,16 +250,13 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 throw new IllegalArgumentException();
             }
         } catch (Exception e) {
-            String message = "Invalid URL format (must be HTTP or HTTPS)";
-            log.error(message);
             throw new ProtocolMapperConfigException(
-                    message,
+                    "Invalid URL format (must be HTTP or HTTPS)",
                     URL_PROPERTY_NAME);
         }
     };
 
     @Override
-    @SneakyThrows
     protected void setClaim(IDToken token, ProtocolMapperModel mappingModel, UserSessionModel userSession,
             KeycloakSession keycloakSession, ClientSessionContext clientSessionCtx) {
         // This will iterate for every token type requested
@@ -283,46 +280,22 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         String username = user.getUsername();
         String clientId = clientSessionCtx.getClientSession().getClient().getClientId();
 
-        String debugLogMsg = url;
-        List<String> debugLogMsgParams = new ArrayList<>();
+        Map<String, String> queryParams = new LinkedHashMap<>();
+
+        if (sendUsername)
+            queryParams.put("username", username);
+
+        if (sendClientId)
+            queryParams.put("client_id", clientId);
+
+        if (rawParams != null && !rawParams.isBlank()) {
+            parseParams(token, user, rawParams, queryParams);
+        }
 
         SimpleHttp enrichmentEndpoint = SimpleHttp.doGet(url, keycloakSession)
                 .acceptJson()
-                .socketTimeOutMillis(2000) // 2 secondi
-                .connectTimeoutMillis(1000); // 1 secondo
-
-        if (sendUsername) {
-            enrichmentEndpoint.param("username", username);
-            debugLogMsgParams.add(String.format("username=%s", username));
-        }
-
-        if (sendClientId) {
-            enrichmentEndpoint.param("client_id", clientId);
-            debugLogMsgParams.add(String.format("client_id=%s", clientId));
-        }
-
-        if (rawParams != null && !rawParams.isBlank()) {
-            for (String pair : rawParams.split("&")) {
-
-                String[] kv = pair.split("=", 2);
-                if (kv.length != 2) {
-                    log.warn("Skipping invalid query parameter '{}'", pair);
-                    continue;
-                }
-
-                String key = kv[0];
-                String value = kv[1];
-                String resolvedValue = resolveParamValue(value, user, token);
-
-                if (resolvedValue == null || resolvedValue.isBlank()) {
-                    log.warn("Resolved value for parameter '{}' was null or empty", key);
-                    continue;
-                }
-
-                enrichmentEndpoint.param(key, resolvedValue);
-                debugLogMsgParams.add(String.format("%s=%s", key, resolvedValue));
-            }
-        }
+                .socketTimeOutMillis(2000)
+                .connectTimeoutMillis(1000);
 
         if (authToken != null && !authToken.isBlank()) {
             enrichmentEndpoint.auth(authToken); // Authorization: Bearer <token>
@@ -331,29 +304,28 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
             enrichmentEndpoint.authBasic(authBasicUsername, authBasicPassword);
         }
 
-        if (!debugLogMsgParams.isEmpty()) {
-            debugLogMsg += "?" + String.join("&", debugLogMsgParams);
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> e : queryParams.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            enrichmentEndpoint.param(k, v);
+
+            if (sb.length() > 0)
+                sb.append("&");
+
+            sb.append(k).append("=").append(v);
         }
 
-        log.debug("Calling enrichment endpoint: {}", debugLogMsg);
+        String fullUrl = enrichmentEndpoint.getUrl();
 
-        Map<String, Object> authzResponse;
+        if (!queryParams.isEmpty())
+            fullUrl += "?" + sb.toString();
 
-        try {
-            int status = enrichmentEndpoint.asStatus();
+        Map<String, Object> authzResponse = callEnrichmentEndpoint(enrichmentEndpoint, fullUrl);
 
-            if (status < 200 || status >= 300) {
-                String msg = String.format("Authorization endpoint error, status code: %d", status);
-                log.error(msg);
-                throw new ProtocolMapperConfigException(msg, URL_PROPERTY_NAME);
-            }
-
-            authzResponse = enrichmentEndpoint.asJson(new TypeReference<>() {
-            });
-        } catch (IOException e) {
-            String msg = String.format("Error calling authorization endpoint %s for user %s", url, username);
-            log.error(msg, e);
-            throw new ProtocolMapperConfigException(msg, URL_PROPERTY_NAME, e);
+        if (authzResponse == null || authzResponse.isEmpty()) {
+            log.debug("No enrichment data returned, skipping claim mapping");
+            return;
         }
 
         // Token Claim Name is configured → map the entire response into a single claim
@@ -380,6 +352,26 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
 
                 claims.put(key, value);
             });
+        }
+    }
+
+    private Map<String, Object> callEnrichmentEndpoint(SimpleHttp enrichmentEndpoint, String url) {
+        log.debug("Calling enrichment endpoint: {}", url);
+
+        try {
+            SimpleHttp.Response response = enrichmentEndpoint.asResponse();
+
+            int status = response.getStatus();
+            if (status < 200 || status >= 300) {
+                log.warn("Enrichment endpoint returned non-success status {}", status);
+                return null;
+            }
+
+            return response.asJson(new TypeReference<>() {
+            });
+        } catch (IOException e) {
+            log.error("Error calling enrichment endpoint", e);
+            return null;
         }
     }
 
@@ -413,4 +405,25 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         return value;
     }
 
+    private void parseParams(IDToken token, UserModel user, String rawParams, Map<String, String> queryParams) {
+        for (String pair : rawParams.split("&")) {
+
+            String[] kv = pair.split("=", 2);
+            if (kv.length != 2) {
+                log.warn("Skipping invalid query parameter '{}'", pair);
+                continue;
+            }
+
+            String key = kv[0];
+            String value = kv[1];
+            String resolvedValue = resolveParamValue(value, user, token);
+
+            if (resolvedValue == null || resolvedValue.isBlank()) {
+                log.warn("Resolved value for parameter '{}' was null or empty", key);
+                continue;
+            }
+
+            queryParams.put(key, resolvedValue);
+        }
+    }
 }
