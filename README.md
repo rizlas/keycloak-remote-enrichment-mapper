@@ -51,8 +51,83 @@ department-specific roles).
 * **Token Claim Name**:
   * If **provided**: The entire JSON response from the API is nested under this single
     key.
+
+```json
+{
+  "exp": 1768165403,
+  "iat": 1768165343,
+  "jti": "8fe566b2-08e0-803b-cad3-3a1e637feeb6",
+  "iss": "http://127.0.0.1:8080/realms/master",
+  "aud": "account",
+  "sub": "fa3fdbf7-4b9a-4e78-8837-a43b895a6d63",
+  "typ": "ID",
+  "azp": "account",
+  "sid": "c5ce6868-dd31-4964-b0d5-8562ba74b2f3",
+  "acr": "1",
+  "email_verified": false,
+  "name": "John Doe",
+  "preferred_username": "admin",
+  "given_name": "John",
+  "custom_claim_name": {
+    "args": {
+      "user_id": "admin@keycloak.org",
+      "name": "John Doe",
+      "client_id": "account",
+      "username": "admin",
+      "param_one": "value_one"
+    },
+    "headers": {
+      "host": "postman-echo.com",
+      "accept-encoding": "gzip, br",
+      "user-agent": "Apache-HttpClient/4.5.14 (Java/21.0.8)",
+      "x-forwarded-proto": "https",
+      "accept": "application/json"
+    },
+    "url": "https://postman-echo.com/get?user_id=admin%40keycloak.org&name=John+Doe&client_id=account&username=admin&param_one=value_one"
+  },
+  "family_name": "Doe",
+  "email": "admin@keycloak.org"
+}
+```
+
   * If **empty**: The JSON response is flattened, and each key is added as a top-level
     claim.
+
+```json
+{
+  "exp": 1768165155,
+  "iat": 1768165096,
+  "jti": "8f0dd94b-5352-1186-a0c5-d2f2f32c0255",
+  "iss": "http://127.0.0.1:8080/realms/master",
+  "aud": "account",
+  "sub": "fa3fdbf7-4b9a-4e78-8837-a43b895a6d63",
+  "typ": "ID",
+  "azp": "account",
+  "sid": "0b78043b-079f-437c-9c18-2c1cf8f8dd90",
+  "acr": "1",
+  "args": {
+    "user_id": "admin@keycloak.org",
+    "name": "John Doe",
+    "client_id": "account",
+    "username": "admin",
+    "param_one": "value_one"
+  },
+  "headers": {
+    "host": "postman-echo.com",
+    "accept-encoding": "gzip, br",
+    "user-agent": "Apache-HttpClient/4.5.14 (Java/21.0.8)",
+    "x-forwarded-proto": "https",
+    "accept": "application/json"
+  },
+  "email_verified": false,
+  "name": "John Doe",
+  "preferred_username": "admin",
+  "given_name": "John",
+  "family_name": "Doe",
+  "url": "https://postman-echo.com/get?user_id=admin%40keycloak.org&name=John+Doe&client_id=account&username=admin&param_one=value_one",
+  "email": "admin@keycloak.org"
+}
+```
 
 ## Develop
 
@@ -70,20 +145,21 @@ Use `https://postman-echo.com/get` as endpoint for testing. This is an excellent
 for development because it mirrors back the parameters and headers Keycloak sends,
 allowing you to see exactly how the mapper behaves before you build your own API.
 
-## Generate folder structure (first bootstrap)
+## Useful commands
 
 ```bash
+# Generate folder structure (first bootstrap)
 mvn archetype:generate \
   -DgroupId=rizlas.keycloak \
   -DartifactId=remote-enrichment-mapper \
   -DarchetypeArtifactId=maven-archetype-quickstart \
   -DinteractiveMode=false
-```
 
-## Create Jar
-
-```bash
+# Create Jar
 mvn clean install -DskipTests
+
+# Resolve dependecies
+mvn dependency:resolve
 ```
 
 ## Resources
