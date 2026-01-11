@@ -73,7 +73,6 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     private static final List<ProviderConfigProperty> configProperties = new ArrayList<>();
 
     private static final String URL_PROPERTY_NAME = "url";
-    private static final String URL_PROPERTY_DEFAULT = "https://postman-echo.com/get";
     private static final String URL_AUTH_TOKEN_PROPERTY_NAME = "url_auth_token";
     private static final String URL_AUTH_BASIC_USERNAME_PROPERTY_NAME = "url_auth_username";
     private static final String URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME = "url_auth_password";
@@ -90,11 +89,10 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         field.setName(URL_PROPERTY_NAME);
         field.setLabel("URL");
         field.setHelpText("""
-                HTTP(S) URL of the authz enrichment endpoint that will be called during
+                HTTP(S) URL of the enrichment endpoint that will be called during
                 token issuance.
                 """);
         field.setType(ProviderConfigProperty.STRING_TYPE);
-        field.setDefaultValue(URL_PROPERTY_DEFAULT);
         field.setRequired(true);
         configProperties.add(field);
 
@@ -224,8 +222,8 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     @Override
     public String getHelpText() {
         return """
-                Adds authorization-related claims to OIDC tokens by enriching user data
-                from an external authoritative source.
+                Adds claims to OIDC tokens by enriching user data from an external
+                authoritative source.
                 """;
     }
 
@@ -264,7 +262,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         Map<String, String> configs = mappingModel.getConfig();
         UserModel user = userSession.getUser();
 
-        String url = configs.getOrDefault(URL_PROPERTY_NAME, URL_PROPERTY_DEFAULT);
+        String url = configs.get(URL_PROPERTY_NAME);
         String authToken = configs.get(URL_AUTH_TOKEN_PROPERTY_NAME);
         String authBasicUsername = configs.get(URL_AUTH_BASIC_USERNAME_PROPERTY_NAME);
         String authBasicPassword = configs.get(URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME);
@@ -321,22 +319,22 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         if (!queryParams.isEmpty())
             fullUrl += "?" + sb.toString();
 
-        Map<String, Object> authzResponse = callEnrichmentEndpoint(enrichmentEndpoint, fullUrl);
+        Map<String, Object> response = callEnrichmentEndpoint(enrichmentEndpoint, fullUrl);
 
-        if (authzResponse == null || authzResponse.isEmpty()) {
+        if (response == null || response.isEmpty()) {
             log.debug("No enrichment data returned, skipping claim mapping");
             return;
         }
 
         // Token Claim Name is configured → map the entire response into a single claim
         if (tokenClaimName != null && !tokenClaimName.isBlank()) {
-            OIDCAttributeMapperHelper.mapClaim(token, mappingModel, authzResponse);
+            OIDCAttributeMapperHelper.mapClaim(token, mappingModel, response);
         } else {
             // Token Claim Name is NOT configured → add each key from the response as an
             // individual claim
             Map<String, Object> claims = token.getOtherClaims();
 
-            authzResponse.forEach((key, value) -> {
+            response.forEach((key, value) -> {
                 // Check if the claim is in the protected native fields blacklist
                 if (PROTECTED_CLAIMS.contains(key)) {
                     log.warn("Blocked attempt to overwrite protected claim: '{}'", key);
