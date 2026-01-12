@@ -1,10 +1,9 @@
 # keycloak-remote-enrichment-mapper
 
-## ⚠️ Work In Progress (WIP)
-
-*This project is currently under active development. While the core security features
-and authentication logic are implemented, it should be thoroughly tested in a staging
-environment before being used in production.*
+![Contributions welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen.svg)
+![GitHub License](https://img.shields.io/github/license/rizlas/keycloak-remote-enrichment-mapper)
+![GitHub Release](https://img.shields.io/github/v/release/rizlas/keycloak-remote-enrichment-mapper)
+[![Publish package to GitHub Packages](https://github.com/rizlas/keycloak-remote-enrichment-mapper/actions/workflows/releases.yml/badge.svg?event=release)](https://github.com/rizlas/keycloak-remote-enrichment-mapper/actions/workflows/releases.yml)
 
 ## Overview
 
@@ -183,3 +182,13 @@ mvn dependency:resolve
 * <https://www.keycloak.org/docs-api/latest/javadocs/org/keycloak/broker/provider/util/SimpleHttp.html>
 * <https://github.com/groupe-sii/keycloak-json-remote-claim/tree/master>
 * <https://github.com/dasniko/keycloak-extensions-demo/blob/main/tokenmapper/src/main/java/dasniko/keycloak/tokenmapper/EchoMapper.java>
+
+---
+
+Feel free to make pull requests, fork, destroy or whatever you like most. Any criticism
+is more than welcome.
+
+<br/>
+
+<div align="center"><img src="https://avatars1.githubusercontent.com/u/8522635?s=96&v=4"/></div>
+<p align="center">#followtheturtle</p>
