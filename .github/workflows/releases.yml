@@ -25,3 +25,11 @@ jobs:
         run: mvn --batch-mode deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Jar to release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: /home/runner/.m2/repository/rizlas/keycloak/remote-enrichment-mapper/1.0.0/remote-enrichment-mapper-1.0.0.jar
+          asset_name: remote-enrichment-mapper-1.0.0.jar
+          tag: 1.0.0
+          overwrite: true
