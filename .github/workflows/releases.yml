@@ -25,11 +25,19 @@ jobs:
         run: mvn --batch-mode deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          else
+            echo "VERSION=testing" >> $GITHUB_ENV
+          fi
       - name: Upload Jar to release
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /home/runner/.m2/repository/rizlas/keycloak/remote-enrichment-mapper/${{ github.ref }}/remote-enrichment-mapper-${{ github.ref }}.jar
-          asset_name: remote-enrichment-mapper-${{ github.ref }}.jar
-          tag: ${{ github.ref }}
+          file: /home/runner/.m2/repository/rizlas/keycloak/remote-enrichment-mapper/${{ env.VERSION }}/remote-enrichment-mapper-${{ env.VERSION }}.jar
+          asset_name: remote-enrichment-mapper-${{ env.VERSION }}.jar
+          tag: ${{ env.VERSION }}
           overwrite: true
