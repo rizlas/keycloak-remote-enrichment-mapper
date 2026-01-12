@@ -5,7 +5,7 @@ services:
       context: .
       args:
         KC_DOCKER_TAG: "26.3.4"
-        ENRICHMENT_MAPPER_VERSION: "1.0"
+        ENRICHMENT_MAPPER_VERSION: "1.0.0"
       dockerfile: Dockerfile
     container_name: keycloak-sample
     environment:

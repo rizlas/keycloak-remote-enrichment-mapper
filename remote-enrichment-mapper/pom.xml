@@ -4,11 +4,11 @@
   <groupId>rizlas.keycloak</groupId>
   <artifactId>remote-enrichment-mapper</artifactId>
   <packaging>jar</packaging>
-  <version>1.0</version>
+  <version>1.0.0</version>
   <name>remote-enrichment-mapper</name>
 
   <properties>
-      <keycloak.version>26.3.4</keycloak.version>
+      <keycloak.version>26.5.0</keycloak.version>
       <java.version>21</java.version>
       <maven.compiler.source>${java.version}</maven.compiler.source>
       <maven.compiler.target>${java.version}</maven.compiler.target>
@@ -19,26 +19,26 @@
     <dependency>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-core</artifactId>
-        <scope>provided</scope>
         <version>${keycloak.version}</version>
+        <scope>provided</scope>
     </dependency>
     <dependency>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-server-spi</artifactId>
-        <scope>provided</scope>
         <version>${keycloak.version}</version>
+        <scope>provided</scope>
     </dependency>
     <dependency>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-server-spi-private</artifactId>
-        <scope>provided</scope>
         <version>${keycloak.version}</version>
+        <scope>provided</scope>
     </dependency>
     <dependency>
         <groupId>org.keycloak</groupId>
         <artifactId>keycloak-services</artifactId>
-        <scope>provided</scope>
         <version>${keycloak.version}</version>
+        <scope>provided</scope>
     </dependency>
 
 		<dependency>

@@ -129,6 +129,17 @@ department-specific roles).
 }
 ```
 
+## Keycloak version
+
+The mapper is built and tested using the latest Keycloak version available at
+development time.
+
+This does **not** prevent it from working with earlier versions of the same major
+release (for example `26.1.x` or other `26.x` versions).
+
+Each mapper release specifies the **minimum supported Keycloak version**, starting from
+the version used at the beginning of development.
+
 ## Develop
 
 Adjust the docker-compose.yml provided and run it
@@ -138,6 +149,8 @@ docker compose up -d --build --force-recreate
 ```
 
 Open keycloak in your browser <http://127.0.0.1:8080>
+
+A devcontainer is also provided to be used in vscode.
 
 ### Testing with Postman Echo
 
