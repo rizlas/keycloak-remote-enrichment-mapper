@@ -13,7 +13,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v6
@@ -29,7 +29,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: /home/runner/.m2/repository/rizlas/keycloak/remote-enrichment-mapper/1.0.0/remote-enrichment-mapper-1.0.0.jar
-          asset_name: remote-enrichment-mapper-1.0.0.jar
-          tag: 1.0.0
+          file: /home/runner/.m2/repository/rizlas/keycloak/remote-enrichment-mapper/${{ github.ref }}/remote-enrichment-mapper-${{ github.ref }}.jar
+          asset_name: remote-enrichment-mapper-${{ github.ref }}.jar
+          tag: ${{ github.ref }}
           overwrite: true
