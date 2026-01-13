@@ -25,3 +25,6 @@ replay_pid*
 
 # do not push target directory
 target
+
+# test db
+*.sql

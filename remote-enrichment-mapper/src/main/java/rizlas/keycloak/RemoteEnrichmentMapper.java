@@ -130,9 +130,15 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 (e.g. param_one=value_one&param_two=value_two).
 
                 Dynamic Values:
-                - 'user_': Resolves from the User Profile (supported key user_email,
-                user_username, user_firstName, user_lastName, user_emailVerified).
-                - 'claim_': Resolves from claims already present in the token (e.g. preferred_username).
+                    - 'user_': Resolves attributes from the User Profile.
+
+                    Default attributes: user_username, user_email, user_firstName, user_lastName.
+                    Custom user attributes are also supported (e.g. from Identity Providers).
+                    Attribute names are case-sensitive.
+
+                    - 'claim_': Resolves from claims already present in the token (e.g. preferred_username).
+
+                    NOTE: GETTING CLAIM IS NOT GUARANTEED DUE TO MAPPER EXECUTION ORDER
 
                 Example: param_one=value_one&user_id=user_email&name=claim_name
 
@@ -374,8 +380,58 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     }
 
     private String getClaimValue(IDToken token, String claimName) {
-        Object customClaim = token.getOtherClaims().get(claimName);
-        return (customClaim != null) ? String.valueOf(customClaim) : null;
+        log.debug("Getting claim {}", claimName);
+
+        Object value = switch (claimName) {
+            case IDToken.NONCE -> token.getNonce();
+            case IDToken.AUTH_TIME -> token.getAuth_time();
+            case IDToken.SESSION_ID -> token.getSessionId();
+            case IDToken.AT_HASH -> token.getAccessTokenHash();
+            case IDToken.C_HASH -> token.getCodeHash();
+            case IDToken.NAME -> token.getName();
+            case IDToken.GIVEN_NAME -> token.getGivenName();
+            case IDToken.FAMILY_NAME -> token.getFamilyName();
+            case IDToken.MIDDLE_NAME -> token.getMiddleName();
+            case IDToken.NICKNAME -> token.getNickName();
+            case IDToken.PREFERRED_USERNAME -> token.getPreferredUsername();
+            case IDToken.PROFILE -> token.getProfile();
+            case IDToken.PICTURE -> token.getPicture();
+            case IDToken.WEBSITE -> token.getWebsite();
+            case IDToken.EMAIL -> token.getEmail();
+            case IDToken.EMAIL_VERIFIED -> token.getEmailVerified();
+            case IDToken.GENDER -> token.getGender();
+            case IDToken.BIRTHDATE -> token.getBirthdate();
+            case IDToken.ZONEINFO -> token.getZoneinfo();
+            case IDToken.LOCALE -> token.getLocale();
+            case IDToken.PHONE_NUMBER -> token.getPhoneNumber();
+            case IDToken.PHONE_NUMBER_VERIFIED -> token.getPhoneNumberVerified();
+            // Not suitable as get param
+            // case IDToken.ADDRESS -> token.getAddressClaimsMap();
+            case IDToken.UPDATED_AT -> token.getUpdatedAt();
+            case IDToken.CLAIMS_LOCALES -> token.getClaimsLocales();
+            case IDToken.ACR -> token.getAcr();
+            case IDToken.AZP -> token.getIssuedFor();
+            case IDToken.AUD -> token.getAudience();
+            case IDToken.SUBJECT -> token.getSubject();
+            default -> token.getOtherClaims().get(claimName);
+        };
+
+        log.debug("Got claim {}", value);
+
+        if (value == null)
+            return null;
+
+        if (value instanceof String s)
+            return s;
+
+        if (value instanceof Boolean || value instanceof Number)
+            return value.toString();
+
+        if (value instanceof String[] arr)
+            return String.join(",", arr);
+
+        log.warn("Unsupported claim type for '{}': {}", claimName, value.getClass().getName());
+        return null;
     }
 
     private String getUserAttribute(UserModel user, String attributeName) {
@@ -384,8 +440,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
             case "username" -> user.getUsername();
             case "firstName" -> user.getFirstName();
             case "lastName" -> user.getLastName();
-            case "emailVerified" -> String.valueOf(user.isEmailVerified());
-            default -> null;
+            default -> user.getFirstAttribute(attributeName);
         };
     }
 
