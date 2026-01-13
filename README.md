@@ -24,6 +24,9 @@ department-specific roles).
   session hijacking.
 * **Conflict Resolution:** Admin-configurable toggle to decide whether to overwrite
   existing custom claims or preserve them.
+* **Caching (Experimental):** When enabled, the mapper stores remote enrichment
+  responses in the current token request’s session context to reduce repeated calls to
+  the external endpoint.
 
 ## Configuration
 
@@ -33,6 +36,10 @@ department-specific roles).
 * **GET Params**: Custom static key-value pairs. Use the prefix `claim_` or `user_` to
   dynamically inject values from the current token (e.g.,
   `user_id=user_email&name=claim_name`).
+
+> [!NOTE]
+> Getting claim is not guaranteed due to mapper execution order
+
 * **Include username**: If enabled, the authenticated user's username is automatically
   appended as a username query parameter.
 * **Include client id**: If enabled, the client identifier (e.g., account, my-app) is

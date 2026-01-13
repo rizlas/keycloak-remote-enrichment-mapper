@@ -27,6 +27,7 @@ import org.keycloak.protocol.oidc.mappers.OIDCIDTokenMapper;
 import org.keycloak.protocol.oidc.mappers.UserInfoTokenMapper;
 import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.representations.IDToken;
+import org.keycloak.util.JsonSerialization;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.auto.service.AutoService;
@@ -80,6 +81,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     private static final String URL_PARAMS_SEND_USERNAME = "url_send_username";
     private static final String URL_PARAMS_SEND_CLIENTID = "url_send_clientid";
     private static final String OVERWRITE_EXISTING_CLAIMS = "overwrite_existing_claims";
+    private static final String CACHING_TOOGLE = "caching_toogle";
 
     static {
         ProviderConfigProperty field;
@@ -177,6 +179,21 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         field.setSecret(true);
         configProperties.add(field);
 
+        // Enable disable caching
+        field = new ProviderConfigProperty();
+        field.setName(CACHING_TOOGLE);
+        field.setLabel("Enable Caching (Experimental)");
+        field.setType(ProviderConfigProperty.BOOLEAN_TYPE);
+        field.setHelpText("""
+                When enabled, the mapper will cache remote enrichment data to reduce
+                the number of calls to the external endpoint during token issuance.
+
+                This feature is experimental and may change in future releases.
+                Use with caution and monitor logs for unexpected behavior.
+                """);
+        field.setDefaultValue("false");
+        configProperties.add(field);
+
         // Claim Mapping Strategy (dummy-field)
         field = new ProviderConfigProperty();
         field.setName("tokenClaimNameInfo");
@@ -264,6 +281,7 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
     protected void setClaim(IDToken token, ProtocolMapperModel mappingModel, UserSessionModel userSession,
             KeycloakSession keycloakSession, ClientSessionContext clientSessionCtx) {
         // This will iterate for every token type requested
+        userSession.setNote(URL_AUTH_BASIC_PASSWORD_PROPERTY_NAME, TOKEN_MAPPER_CATEGORY);
 
         Map<String, String> configs = mappingModel.getConfig();
         UserModel user = userSession.getUser();
@@ -280,9 +298,11 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         String rawParams = configs.get(URL_PARAMS_PROPERTY_NAME);
 
         boolean overwriteExisting = Boolean.parseBoolean(configs.get(OVERWRITE_EXISTING_CLAIMS));
+        boolean enableCaching = Boolean.parseBoolean(configs.get(CACHING_TOOGLE));
 
         String username = user.getUsername();
         String clientId = clientSessionCtx.getClientSession().getClient().getClientId();
+        String cacheKey = clientId + "." + PROVIDER_ID + "." + mappingModel.getName();
 
         Map<String, String> queryParams = new LinkedHashMap<>();
 
@@ -325,22 +345,23 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         if (!queryParams.isEmpty())
             fullUrl += "?" + sb.toString();
 
-        Map<String, Object> response = callEnrichmentEndpoint(enrichmentEndpoint, fullUrl);
+        Map<String, Object> data = callEnrichmentEndpoint(enrichmentEndpoint, fullUrl, cacheKey, clientSessionCtx,
+                enableCaching);
 
-        if (response == null || response.isEmpty()) {
+        if (data == null || data.isEmpty()) {
             log.debug("No enrichment data returned, skipping claim mapping");
             return;
         }
 
         // Token Claim Name is configured → map the entire response into a single claim
         if (tokenClaimName != null && !tokenClaimName.isBlank()) {
-            OIDCAttributeMapperHelper.mapClaim(token, mappingModel, response);
+            OIDCAttributeMapperHelper.mapClaim(token, mappingModel, data);
         } else {
             // Token Claim Name is NOT configured → add each key from the response as an
             // individual claim
             Map<String, Object> claims = token.getOtherClaims();
 
-            response.forEach((key, value) -> {
+            data.forEach((key, value) -> {
                 // Check if the claim is in the protected native fields blacklist
                 if (PROTECTED_CLAIMS.contains(key)) {
                     log.warn("Blocked attempt to overwrite protected claim: '{}'", key);
@@ -359,7 +380,18 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
         }
     }
 
-    private Map<String, Object> callEnrichmentEndpoint(SimpleHttp enrichmentEndpoint, String url) {
+    private Map<String, Object> callEnrichmentEndpoint(SimpleHttp enrichmentEndpoint, String url, String cacheKey,
+            ClientSessionContext clientSessionCtx, boolean enableCaching) {
+        Map<String, Object> data = null;
+
+        if (enableCaching) {
+            data = getFromSession(cacheKey, clientSessionCtx);
+            if (data != null) {
+                log.info("Cache hit for key '{}', data retrieved: {}", cacheKey, data);
+                return data;
+            }
+        }
+
         log.debug("Calling enrichment endpoint: {}", url);
 
         try {
@@ -371,8 +403,14 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
                 return null;
             }
 
-            return response.asJson(new TypeReference<>() {
+            data = response.asJson(new TypeReference<>() {
             });
+
+            if (enableCaching && data != null && !data.isEmpty()) {
+                storeInSession(cacheKey, clientSessionCtx, data);
+            }
+
+            return data;
         } catch (IOException e) {
             log.error("Error calling enrichment endpoint", e);
             return null;
@@ -479,4 +517,27 @@ public class RemoteEnrichmentMapper extends AbstractOIDCProtocolMapper
             queryParams.put(key, resolvedValue);
         }
     }
+
+    private Map<String, Object> getFromSession(String cacheKey, ClientSessionContext session) {
+        String json = session.getAttribute(cacheKey, String.class);
+        if (json == null)
+            return null;
+
+        try {
+            return JsonSerialization.readValue(json, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            log.error(e.toString());
+            return null;
+        }
+    }
+
+    private void storeInSession(String cacheKey, ClientSessionContext session, Map<String, Object> data) {
+        try {
+            session.setAttribute(cacheKey, JsonSerialization.writeValueAsString(data));
+        } catch (Exception e) {
+            log.error(e.toString());
+        }
+    }
+
 }
